@@ -9,13 +9,16 @@ export const useAddWidgetMutation = ({ dashboardId }: { dashboardId: string }) =
   return useMutation({
     mutationFn: (widgetId: string) =>
       widgetsApi.addWidgetToDashboard({ dashboardId, widgetId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: widgetQueryKeys.byDashboard(dashboardId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: dashboardQueryKeys.item(dashboardId),
-      });
-    },
+    // Returning the promise keeps the mutation pending until the refetches finish,
+    // so callers can't re-submit before the dashboard data reflects the add.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: widgetQueryKeys.byDashboard(dashboardId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKeys.item(dashboardId),
+        }),
+      ]),
   });
 };
