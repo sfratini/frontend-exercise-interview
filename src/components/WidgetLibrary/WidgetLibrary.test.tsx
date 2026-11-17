@@ -1,6 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '~/services/reactQuery';
+import { useDashboardWidgets } from '~/queries/widgets/useWidgets';
+import { widgetQueryKeys } from '~/queries/widgets/useWidgets';
 import * as widgetsApi from '~/services/api/widgets.api';
 import { MOCK_WIDGETS } from '~/mocks/widgets.mock';
 import { WidgetLibraryPanel } from './WidgetLibraryPanel';
@@ -126,5 +128,101 @@ describe('WidgetLibraryPanel', () => {
   it('exposes a labelled dialog', () => {
     renderPanel();
     expect(screen.getByRole('dialog', { name: 'Widget Library' })).toBeTruthy();
+  });
+});
+
+describe('review follow-ups', () => {
+  const newClient = () =>
+    new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+
+  it('keeps the Add button disabled from click until the widget shows as Added', async () => {
+    const onDashboard = [MOCK_WIDGETS[0].id];
+    api.getDashboardWidgets.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 60));
+      return MOCK_WIDGETS.filter((w) => onDashboard.includes(w.id));
+    });
+    api.addWidgetToDashboard.mockImplementation(async ({ widgetId }) => {
+      onDashboard.push(widgetId);
+    });
+
+    // Mirrors App: the panel receives widgets from useDashboardWidgets.
+    const Harness = () => {
+      const { data = [] } = useDashboardWidgets({ dashboardId: 'dash-1' });
+      return <WidgetLibraryPanel dashboardId="dash-1" widgetsOnDashboard={data} onClose={jest.fn()} />;
+    };
+    render(
+      <QueryClientProvider client={newClient()}>
+        <Harness />
+      </QueryClientProvider>,
+    );
+
+    const target = MOCK_WIDGETS[1];
+    const addButton = await screen.findByLabelText(`Add ${target.title}`);
+    const enabledAddSamples: boolean[] = [];
+    await userEvent.click(addButton);
+    const timer = setInterval(() => {
+      const btn = screen.queryByLabelText(`Add ${target.title}`) as HTMLButtonElement | null;
+      if (btn && !btn.disabled) enabledAddSamples.push(true);
+    }, 5);
+
+    await screen.findByLabelText(`Added ${target.title}`);
+    clearInterval(timer);
+    expect(enabledAddSamples).toEqual([]);
+    expect(api.addWidgetToDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not close when a drag starts in the panel and ends on the overlay', async () => {
+    const { onClose } = renderPanel();
+    const input = await screen.findByLabelText('Search widgets');
+    const overlay = screen.getByRole('dialog').parentElement as HTMLElement;
+
+    await userEvent.pointer([
+      { keys: '[MouseLeft>]', target: input },
+      { target: overlay },
+      { keys: '[/MouseLeft]', target: overlay },
+    ]);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await userEvent.click(overlay);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not claim to be modal without a focus trap', () => {
+    renderPanel();
+    expect(screen.getByRole('dialog').getAttribute('aria-modal')).toBeNull();
+  });
+
+  it('keeps the loaded list and shows a banner when a background refetch fails', async () => {
+    const client = newClient();
+    render(
+      <QueryClientProvider client={client}>
+        <WidgetLibraryPanel dashboardId="dash-1" widgetsOnDashboard={[]} onClose={jest.fn()} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText(MOCK_WIDGETS[0].title);
+
+    api.getWidgets.mockRejectedValue(new Error('boom'));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: widgetQueryKeys.list() });
+    });
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not refresh');
+    expect(screen.getByText(MOCK_WIDGETS[0].title)).toBeTruthy();
+    expect(screen.queryByText('Retry')).toBeNull();
+  });
+
+  it('highlights category matches in the group label and badge', async () => {
+    renderPanel();
+    await screen.findByText(MOCK_WIDGETS[0].title);
+    const category = MOCK_WIDGETS[0].category;
+    await userEvent.type(screen.getByLabelText('Search widgets'), category.slice(0, 3));
+
+    const marks = Array.from(document.querySelectorAll('mark')).map((m) => m.textContent);
+    expect(marks.length).toBeGreaterThan(0);
+    const badges = within(screen.getByRole('dialog')).getAllByText(category.slice(0, 3), {
+      selector: 'mark',
+      ignore: 'p mark',
+    });
+    expect(badges.length).toBeGreaterThan(0);
   });
 });

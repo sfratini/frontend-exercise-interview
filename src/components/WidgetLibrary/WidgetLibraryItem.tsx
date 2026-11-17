@@ -1,6 +1,6 @@
 import { Widget } from '~/types/widget.types';
 import { Button } from '~/shared/components/Button';
-import { splitByQuery } from './useWidgetLibraryState';
+import { HighlightedText } from './HighlightedText';
 import {
   Badge,
   BadgeRow,
@@ -31,16 +31,12 @@ export const WidgetLibraryItem = ({
     <ItemHeader>
       <ItemContent>
         <ItemTitle title={widget.title}>
-          {splitByQuery(widget.title, query).map((segment, index) =>
-            segment.isMatch ? (
-              <mark key={index}>{segment.text}</mark>
-            ) : (
-              <span key={index}>{segment.text}</span>
-            ),
-          )}
+          <HighlightedText text={widget.title} query={query} />
         </ItemTitle>
         <BadgeRow>
-          <Badge>{widget.category}</Badge>
+          <Badge>
+            <HighlightedText text={widget.category} query={query} />
+          </Badge>
           <Badge>{widget.properties.chartType}</Badge>
         </BadgeRow>
       </ItemContent>

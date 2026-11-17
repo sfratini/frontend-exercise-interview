@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Widget } from '~/types/widget.types';
 import { useWidgets } from '~/queries/widgets/useWidgets';
 import { useAddWidgetMutation } from '~/queries/widgets/useAddWidgetMutation';
 import { EmptyState } from '~/shared/components/EmptyState';
 import { LoadingSpinner } from '~/shared/components/LoadingSpinner';
 import { Button } from '~/shared/components/Button';
+import { HighlightedText } from './HighlightedText';
 import { WidgetLibraryItem } from './WidgetLibraryItem';
 import { useWidgetLibraryState } from './useWidgetLibraryState';
 import {
@@ -13,6 +14,7 @@ import {
   NO_RESULTS_DESCRIPTION,
   NO_RESULTS_TITLE,
   PANEL_TITLE,
+  REFRESH_ERROR_MESSAGE,
   SEARCH_PLACEHOLDER,
 } from './widgetLibrary.constants';
 import {
@@ -38,6 +40,7 @@ export const WidgetLibraryPanel = ({
   widgetsOnDashboard,
   onClose,
 }: WidgetLibraryPanelProps) => {
+  const mouseDownOnOverlay = useRef(false);
   const widgetsQuery = useWidgets();
   const addWidget = useAddWidgetMutation({ dashboardId });
   const { query, setQuery, groups, addedIds } = useWidgetLibraryState({
@@ -57,7 +60,8 @@ export const WidgetLibraryPanel = ({
     if (widgetsQuery.isPending) {
       return <LoadingSpinner />;
     }
-    if (widgetsQuery.isError) {
+    // Only replace the list with the error state when there is nothing cached to show.
+    if (widgetsQuery.isError && !widgetsQuery.data) {
       return (
         <ErrorMessage role="alert">
           {LOAD_ERROR_MESSAGE}{' '}
@@ -72,7 +76,9 @@ export const WidgetLibraryPanel = ({
     }
     return groups.map((group) => (
       <section key={group.category}>
-        <CategoryLabel>{group.category}</CategoryLabel>
+        <CategoryLabel>
+          <HighlightedText text={group.category} query={query} />
+        </CategoryLabel>
         {group.widgets.map((widget) => (
           <WidgetLibraryItem
             key={widget.id}
@@ -90,11 +96,17 @@ export const WidgetLibraryPanel = ({
 
   return (
     <Overlay
+      onMouseDown={(event) => {
+        mouseDownOnOverlay.current = event.target === event.currentTarget;
+      }}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        // Only close when the press and the release both happened on the overlay,
+        // so dragging a text selection out of the panel doesn't dismiss it.
+        if (mouseDownOnOverlay.current && event.target === event.currentTarget) onClose();
+        mouseDownOnOverlay.current = false;
       }}
     >
-      <Panel role="dialog" aria-modal="true" aria-label={PANEL_TITLE}>
+      <Panel role="dialog" aria-label={PANEL_TITLE}>
         <PanelHeader>
           <PanelTitle>{PANEL_TITLE}</PanelTitle>
           <Button variant="ghost" size="sm" aria-label="Close widget library" onClick={onClose}>
@@ -113,6 +125,9 @@ export const WidgetLibraryPanel = ({
         </SearchWrapper>
         <PanelBody>
           {addWidget.isError && <ErrorMessage role="alert">{ADD_ERROR_MESSAGE}</ErrorMessage>}
+          {widgetsQuery.isError && widgetsQuery.data && (
+            <ErrorMessage role="alert">{REFRESH_ERROR_MESSAGE}</ErrorMessage>
+          )}
           {renderBody()}
         </PanelBody>
       </Panel>
